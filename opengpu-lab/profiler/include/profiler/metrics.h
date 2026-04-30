@@ -28,6 +28,19 @@ struct Metrics {
   bool high_stall;
 };
 
+struct RooflineMetrics {
+  std::string backend_name;
+  double flops;
+  double bytes_transferred;
+  double arithmetic_intensity;
+  double achieved_flops_per_sec;
+  double peak_compute_gflops;
+  double peak_bandwidth_gbps;
+  double ridge_point;
+  bool compute_bound;
+  bool memory_bound;
+};
+
 }  // namespace opengpu::profiler
 
 #endif  // OPENGPU_LAB_PROFILER_METRICS_H_

@@ -38,6 +38,14 @@ class Profiler {
    */
   void report(bool compiler_coalesced) const;
 
+  /**
+   * @brief Prints roofline model classification for backend metrics.
+   * @param metrics Roofline payload for each backend.
+   * @return None.
+   * @sideeffects Writes roofline analysis and insights to stdout.
+   */
+  void roofline_report(const std::vector<RooflineMetrics>& metrics) const;
+
  private:
   std::vector<Metrics> metrics_;
 };

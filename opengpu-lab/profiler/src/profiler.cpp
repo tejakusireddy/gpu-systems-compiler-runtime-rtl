@@ -83,4 +83,47 @@ void Profiler::report(const bool compiler_coalesced) const {
   }
 }
 
+void Profiler::roofline_report(const std::vector<RooflineMetrics>& metrics) const {
+  constexpr double kGiga = 1.0e9;
+  if (metrics.empty()) {
+    return;
+  }
+
+  const double peak_compute_gflops = metrics.front().peak_compute_gflops;
+  const double peak_bandwidth_gbps = metrics.front().peak_bandwidth_gbps;
+  const double ridge_point = metrics.front().ridge_point;
+
+  std::cout << "=== Roofline Analysis ===\n";
+  std::cout << std::fixed << std::setprecision(1);
+  std::cout << "Peak Compute  : " << peak_compute_gflops << " GFLOPS\n";
+  std::cout << "Peak Bandwidth: " << peak_bandwidth_gbps << " GB/s\n";
+  std::cout << "Ridge Point   : " << ridge_point << " FLOPS/byte\n\n";
+
+  std::cout << std::left << std::setw(12) << "Backend" << std::setw(16) << "ArithInt(F/B)"
+            << std::setw(20) << "Achieved(GFLOPS)" << std::setw(13) << "Bound"
+            << "Assessment\n";
+  std::cout << std::setprecision(2);
+  for (const RooflineMetrics& m : metrics) {
+    const char* bound = m.memory_bound ? "MEMORY" : "COMPUTE";
+    const char* assessment =
+        m.memory_bound ? "Below ridge: memory reuse helps" : "Above ridge: compute bound";
+    std::cout << std::left << std::setw(12) << m.backend_name << std::setw(16)
+              << m.arithmetic_intensity << std::setw(20) << (m.achieved_flops_per_sec / kGiga)
+              << std::setw(13) << bound << assessment << '\n';
+  }
+
+  std::cout << "\n=== Roofline Insights ===\n";
+  for (const RooflineMetrics& m : metrics) {
+    if (m.arithmetic_intensity <= m.ridge_point) {
+      std::cout << "[!] " << m.backend_name << " is memory-bound (intensity="
+                << m.arithmetic_intensity << ", ridge=" << m.ridge_point << ")\n";
+      std::cout << "    -> Increase arithmetic intensity via loop tiling\n";
+      std::cout << "    -> Target: tile_size=32 increases reuse by ~32x\n";
+    } else {
+      std::cout << "[✓] " << m.backend_name
+                << " is compute-bound — memory access pattern is not the bottleneck\n";
+    }
+  }
+}
+
 }  // namespace opengpu::profiler
