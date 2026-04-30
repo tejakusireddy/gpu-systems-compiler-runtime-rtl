@@ -13,7 +13,8 @@ KernelIR loop_tiling_pass(const KernelIR& kernel, const std::size_t tile_size) {
 
   for (const Op& op : kernel.ops) {
     if (op.type == OpType::MUL) {
-      transformed.ops.push_back(Op{OpType::TILE, "tile", "", "", tile_size});
+      transformed.ops.push_back(
+          Op{OpType::TILE, "tile", "", "", tile_size, MemAccessPattern::UNKNOWN, 0U});
     }
     transformed.ops.push_back(op);
   }
@@ -47,6 +48,22 @@ KernelIR auto_coalescing_fix_pass(const KernelIR& kernel) {
     }
   }
   return rewritten;
+}
+
+KernelIR memory_pattern_analysis_pass(const KernelIR& kernel) {
+  KernelIR annotated = kernel;
+  for (Op& op : annotated.ops) {
+    if (op.type == OpType::GLOBAL_LOAD || op.type == OpType::GLOBAL_STORE) {
+      if (op.stride == 1U) {
+        op.access_pattern = MemAccessPattern::COALESCED;
+      } else if (op.stride > 1U) {
+        op.access_pattern = MemAccessPattern::STRIDED;
+      } else {
+        op.access_pattern = MemAccessPattern::UNKNOWN;
+      }
+    }
+  }
+  return annotated;
 }
 
 }  // namespace opengpu::compiler

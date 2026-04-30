@@ -12,7 +12,19 @@
 
 namespace opengpu::compiler {
 
-enum class OpType { LOAD, STORE, MUL, ADD, TILE };
+enum class MemAccessPattern { COALESCED, STRIDED, RANDOM, UNKNOWN };
+
+enum class OpType {
+  LOAD,
+  STORE,
+  MUL,
+  ADD,
+  TILE,
+  GLOBAL_LOAD,
+  GLOBAL_STORE,
+  SHARED_MEM_LOAD,
+  SHARED_MEM_STORE
+};
 
 struct Op {
   OpType type;
@@ -20,6 +32,8 @@ struct Op {
   std::string src0;
   std::string src1;
   std::size_t tile_size;
+  MemAccessPattern access_pattern = MemAccessPattern::UNKNOWN;
+  std::size_t stride = 0U;
 };
 
 struct KernelIR {
@@ -34,6 +48,14 @@ struct KernelIR {
  * @sideeffects None.
  */
 KernelIR build_matmul_ir();
+
+/**
+ * @brief Builds a naive CUDA matmul IR with memory stride annotations.
+ * @param N Matrix dimension used for strided B-side global loads.
+ * @return KernelIR containing CUDA-style global memory operations.
+ * @sideeffects None.
+ */
+KernelIR build_cuda_matmul_ir(std::size_t N);
 
 }  // namespace opengpu::compiler
 

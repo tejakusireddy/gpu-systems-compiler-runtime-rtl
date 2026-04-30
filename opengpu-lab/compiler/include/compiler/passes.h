@@ -37,6 +37,14 @@ bool memory_coalescing_pass(const KernelIR& kernel);
  */
 KernelIR auto_coalescing_fix_pass(const KernelIR& kernel);
 
+/**
+ * @brief Classifies global memory op access patterns from stride annotation.
+ * @param kernel Input kernel IR.
+ * @return IR annotated with access_pattern for GLOBAL_LOAD/GLOBAL_STORE ops.
+ * @sideeffects None.
+ */
+KernelIR memory_pattern_analysis_pass(const KernelIR& kernel);
+
 }  // namespace opengpu::compiler
 
 #endif  // OPENGPU_LAB_COMPILER_PASSES_H_

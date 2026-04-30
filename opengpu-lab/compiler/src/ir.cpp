@@ -11,11 +11,24 @@ KernelIR build_matmul_ir() {
   KernelIR kernel{};
   kernel.name = "matmul";
   kernel.ops = {
-      Op{OpType::LOAD, "a_reg", "a", "", 0U},
-      Op{OpType::LOAD, "b_reg", "b", "", 0U},
-      Op{OpType::MUL, "tmp", "a_reg", "b_reg", 0U},
-      Op{OpType::ADD, "c", "c", "tmp", 0U},
-      Op{OpType::STORE, "c", "c", "", 0U},
+      Op{OpType::LOAD, "a_reg", "a", "", 0U, MemAccessPattern::UNKNOWN, 0U},
+      Op{OpType::LOAD, "b_reg", "b", "", 0U, MemAccessPattern::UNKNOWN, 0U},
+      Op{OpType::MUL, "tmp", "a_reg", "b_reg", 0U, MemAccessPattern::UNKNOWN, 0U},
+      Op{OpType::ADD, "c", "c", "tmp", 0U, MemAccessPattern::UNKNOWN, 0U},
+      Op{OpType::STORE, "c", "c", "", 0U, MemAccessPattern::UNKNOWN, 0U},
+  };
+  return kernel;
+}
+
+KernelIR build_cuda_matmul_ir(const std::size_t N) {
+  KernelIR kernel{};
+  kernel.name = "cuda_matmul";
+  kernel.ops = {
+      Op{OpType::GLOBAL_LOAD, "a_reg", "a", "", 0U, MemAccessPattern::UNKNOWN, 1U},
+      Op{OpType::GLOBAL_LOAD, "b_reg", "b", "", 0U, MemAccessPattern::UNKNOWN, N},
+      Op{OpType::MUL, "tmp", "a_reg", "b_reg", 0U, MemAccessPattern::UNKNOWN, 0U},
+      Op{OpType::ADD, "c", "c", "tmp", 0U, MemAccessPattern::UNKNOWN, 0U},
+      Op{OpType::GLOBAL_STORE, "c", "c", "", 0U, MemAccessPattern::UNKNOWN, 1U},
   };
   return kernel;
 }
