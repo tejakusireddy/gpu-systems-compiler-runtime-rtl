@@ -1,0 +1,41 @@
+# OpenGPU Lab — Developer shortcuts
+# Usage:
+#   make analyze   KERNEL=path/to/kernel.cu [N=64]
+#   make fix       KERNEL=path/to/kernel.cu [N=64]
+#   make benchmark [N=64]
+
+N ?= 64
+KERNEL ?= backends/cuda/kernels/matmul.cu
+
+.PHONY: analyze fix benchmark build clean
+
+build:
+	@if [ ! -f "./build/tools/gpuopt" ]; then \
+		echo "Building gpuopt..."; \
+		cmake -S . -B build -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1 && \
+		cmake --build build --target gpuopt > /dev/null 2>&1; \
+		echo "Build complete."; \
+	fi
+
+analyze: build
+	@./build/tools/gpuopt --kernel $(KERNEL) --n $(N)
+
+fix: build
+	@./build/tools/gpuopt --kernel $(KERNEL) --n $(N) --fix
+
+benchmark:
+	@if [ ! -f "./build/tests/test_profiler" ]; then \
+		echo "Building benchmarks..."; \
+		cmake -S . -B build -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1 && \
+		cmake --build build > /dev/null 2>&1; \
+		echo "Build complete."; \
+	fi
+	@echo "=== OpenGPU Benchmark ==="
+	@echo "Kernel: backends/cuda/kernels/matmul.cu"
+	@echo "N: $(N)"
+	@echo ""
+	@./build/tests/test_profiler
+
+clean:
+	@rm -rf build
+	@echo "Build directory removed."
