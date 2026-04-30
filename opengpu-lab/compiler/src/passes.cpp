@@ -75,90 +75,125 @@ KernelIR parse_cuda_kernel(const std::string& filepath, const std::size_t n) {
     return {};
   }
 
-  bool saw_shared_decl_as = false;
-  bool saw_shared_decl_bs = false;
-  bool saw_a_load = false;
-  bool saw_b_load = false;
-  bool saw_c_store = false;
-  bool saw_tiled_a_load = false;
-  bool saw_tiled_b_load = false;
-  bool saw_shared_compute_as = false;
-  bool saw_shared_compute_bs = false;
+  bool saw_legacy_a_load = false;
+  bool saw_legacy_b_load = false;
+  bool saw_legacy_c_store = false;
+  bool legacy_mode = false;
   std::string line;
+  KernelIR parsed{};
+  parsed.name = "parsed_cuda_kernel";
+
   while (std::getline(cuda_file, line)) {
-    if (!saw_shared_decl_as && line.find("__shared__ float As[") != std::string::npos) {
-      saw_shared_decl_as = true;
+    if (line.find("a_device[") != std::string::npos || line.find("b_device[") != std::string::npos ||
+        line.find("c_device[") != std::string::npos) {
+      legacy_mode = true;
     }
-    if (!saw_shared_decl_bs && line.find("__shared__ float Bs[") != std::string::npos) {
-      saw_shared_decl_bs = true;
-    }
-    if (!saw_a_load && line.find("a_device[") != std::string::npos) {
-      saw_a_load = true;
-    }
-    if (!saw_b_load && line.find("b_device[") != std::string::npos) {
-      const bool has_strided_term =
-          line.find("* n") != std::string::npos || line.find("*n") != std::string::npos;
-      if (has_strided_term) {
-        saw_b_load = true;
+
+    // Rule 1: shared memory declaration.
+    if (line.find("__shared__") != std::string::npos) {
+      const std::string marker = "float ";
+      const std::size_t type_pos = line.find(marker);
+      const std::size_t bracket_pos = line.find("[", type_pos == std::string::npos ? 0U : type_pos);
+      if (type_pos != std::string::npos && bracket_pos != std::string::npos &&
+          bracket_pos > (type_pos + marker.size())) {
+        const std::string name =
+            line.substr(type_pos + marker.size(), bracket_pos - (type_pos + marker.size()));
+        parsed.ops.push_back(
+            Op{OpType::SHARED_MEM_LOAD, name, "shared_decl", "", 0U, MemAccessPattern::COALESCED,
+               1U});
       }
     }
-    if (!saw_c_store && line.find("c_device[") != std::string::npos &&
+
+    const bool ends_coalesced = line.find("+ tx]") != std::string::npos ||
+                                line.find("+ ty]") != std::string::npos ||
+                                line.find("* ty + tx]") != std::string::npos;
+    const bool has_strided_multiplier = line.find("* wA") != std::string::npos ||
+                                        line.find("*wA") != std::string::npos ||
+                                        line.find("* wB") != std::string::npos ||
+                                        line.find("*wB") != std::string::npos ||
+                                        line.find("* n") != std::string::npos ||
+                                        line.find("*n") != std::string::npos;
+
+    if (!legacy_mode) {
+      // Rule 2: coalesced global load.
+      const bool contains_uppercase_load =
+          line.find("= A[") != std::string::npos || line.find("= B[") != std::string::npos;
+      if (contains_uppercase_load && ends_coalesced) {
+        std::string src_name = "global_load";
+        if (line.find("= A[") != std::string::npos) {
+          src_name = "A";
+        } else if (line.find("= B[") != std::string::npos) {
+          src_name = "B";
+        }
+        parsed.ops.push_back(Op{OpType::GLOBAL_LOAD, src_name + "_load", src_name, "", 0U,
+                                MemAccessPattern::COALESCED, 1U});
+      }
+
+      // Rule 3: strided global load candidate.
+      if (line.find("=") != std::string::npos && line.find("[") != std::string::npos &&
+          has_strided_multiplier && !ends_coalesced) {
+        parsed.ops.push_back(Op{OpType::GLOBAL_LOAD, "strided_load", "global", "", 0U,
+                                MemAccessPattern::STRIDED, n});
+      }
+
+      // Rule 4: global store.
+      const std::size_t eq_pos = line.find("=");
+      if (eq_pos != std::string::npos && line.find("[") != std::string::npos && ends_coalesced) {
+        const std::size_t left_bracket = line.find("[");
+        if (left_bracket != std::string::npos && left_bracket < eq_pos) {
+          std::size_t start = left_bracket;
+          while (start > 0U) {
+            const char ch = line[start - 1U];
+            const bool is_ident = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                                  (ch >= '0' && ch <= '9') || ch == '_';
+            if (!is_ident) {
+              break;
+            }
+            --start;
+          }
+          const std::string dst_name = line.substr(start, left_bracket - start);
+          parsed.ops.push_back(Op{OpType::GLOBAL_STORE, dst_name, dst_name, "", 0U,
+                                  MemAccessPattern::COALESCED, 1U});
+        }
+      }
+    }
+
+    // Shared memory compute accesses (kept).
+    if (line.find("As[ty][k]") != std::string::npos) {
+      parsed.ops.push_back(Op{OpType::SHARED_MEM_LOAD, "As_compute", "As[ty][k]", "", 0U,
+                              MemAccessPattern::COALESCED, 1U});
+    }
+    if (line.find("Bs[k][tx]") != std::string::npos) {
+      parsed.ops.push_back(Op{OpType::SHARED_MEM_LOAD, "Bs_compute", "Bs[k][tx]", "", 0U,
+                              MemAccessPattern::COALESCED, 1U});
+    }
+
+    // Rule 5: legacy fallback for our kernel naming.
+    if (!saw_legacy_a_load && line.find("a_device[") != std::string::npos) {
+      saw_legacy_a_load = true;
+    }
+    if (!saw_legacy_b_load && line.find("b_device[") != std::string::npos) {
+      saw_legacy_b_load = true;
+    }
+    if (!saw_legacy_c_store && line.find("c_device[") != std::string::npos &&
         line.find("=") != std::string::npos) {
-      saw_c_store = true;
-    }
-    if (!saw_tiled_a_load && line.find("As[ty][tx] = A[") != std::string::npos &&
-        line.find("+ tx") != std::string::npos) {
-      saw_tiled_a_load = true;
-    }
-    if (!saw_tiled_b_load && line.find("Bs[ty][tx] = B[") != std::string::npos &&
-        line.find("+ tx") != std::string::npos) {
-      saw_tiled_b_load = true;
-    }
-    if (!saw_shared_compute_as && line.find("As[ty][k]") != std::string::npos) {
-      saw_shared_compute_as = true;
-    }
-    if (!saw_shared_compute_bs && line.find("Bs[k][tx]") != std::string::npos) {
-      saw_shared_compute_bs = true;
+      saw_legacy_c_store = true;
     }
   }
 
-  KernelIR parsed{};
-  parsed.name = "parsed_cuda_kernel";
-  if (saw_shared_decl_as) {
+  if (saw_legacy_a_load) {
     parsed.ops.push_back(
-        Op{OpType::SHARED_MEM_LOAD, "As", "shared_decl", "", 0U, MemAccessPattern::COALESCED, 1U});
+        Op{OpType::GLOBAL_LOAD, "a_reg", "a_device", "", 0U, MemAccessPattern::COALESCED, 1U});
   }
-  if (saw_shared_decl_bs) {
+  if (saw_legacy_b_load) {
     parsed.ops.push_back(
-        Op{OpType::SHARED_MEM_LOAD, "Bs", "shared_decl", "", 0U, MemAccessPattern::COALESCED, 1U});
-  }
-  if (saw_tiled_a_load) {
-    parsed.ops.push_back(
-        Op{OpType::GLOBAL_LOAD, "As_tile", "A", "", 0U, MemAccessPattern::UNKNOWN, 1U});
-  } else if (saw_a_load) {
-    parsed.ops.push_back(
-        Op{OpType::GLOBAL_LOAD, "a_reg", "a_device", "", 0U, MemAccessPattern::UNKNOWN, 1U});
-  }
-  if (saw_tiled_b_load) {
-    parsed.ops.push_back(
-        Op{OpType::GLOBAL_LOAD, "Bs_tile", "B", "", 0U, MemAccessPattern::UNKNOWN, 1U});
-  } else if (saw_b_load) {
-    parsed.ops.push_back(
-        Op{OpType::GLOBAL_LOAD, "b_reg", "b_device", "", 0U, MemAccessPattern::UNKNOWN, n});
-  }
-  if (saw_shared_compute_as) {
-    parsed.ops.push_back(
-        Op{OpType::SHARED_MEM_LOAD, "As_compute", "As[ty][k]", "", 0U, MemAccessPattern::COALESCED, 1U});
-  }
-  if (saw_shared_compute_bs) {
-    parsed.ops.push_back(
-        Op{OpType::SHARED_MEM_LOAD, "Bs_compute", "Bs[k][tx]", "", 0U, MemAccessPattern::COALESCED, 1U});
+        Op{OpType::GLOBAL_LOAD, "b_reg", "b_device", "", 0U, MemAccessPattern::STRIDED, n});
   }
   parsed.ops.push_back(Op{OpType::MUL, "tmp", "a_reg", "b_reg", 0U, MemAccessPattern::UNKNOWN,
                           0U});
   parsed.ops.push_back(
       Op{OpType::ADD, "c", "c", "tmp", 0U, MemAccessPattern::UNKNOWN, 0U});
-  if (saw_c_store) {
+  if (saw_legacy_c_store) {
     parsed.ops.push_back(
         Op{OpType::GLOBAL_STORE, "c_device", "c", "", 0U, MemAccessPattern::UNKNOWN, 1U});
   }

@@ -22,8 +22,86 @@ The goal is simple: run the same workload across CPU, CUDA, and RTL-sim, compare
 
 **Fully open-source (MIT License). Built for learning, experimentation, and real GPU performance analysis.**
 
+## gpuopt — CLI Tool
+
+`gpuopt` analyzes a CUDA kernel file end-to-end and reports memory access issues, roofline classification, and optimization guidance in one command.
+
+```bash
+cmake -S opengpu-lab -B opengpu-lab/build
+cmake --build opengpu-lab/build
+cd opengpu-lab
+```
+
+Command 1:
+```bash
+./build/tools/gpuopt --kernel backends/cuda/kernels/matmul.cu --n 64
+```
+```text
+gpuopt — GPU Kernel Optimizer
+==============================
+Analyzing: backends/cuda/kernels/matmul.cu  (n=64)
+
+=== Memory Access Analysis ===
+[✓] a_device -> COALESCED (stride=1)
+[!] b_device -> STRIDED (stride=64) — non-coalesced column access
+[✓] c -> COALESCED (stride=1)
+
+=== Roofline Analysis ===
+Arithmetic Intensity : 10.67 FLOPS/byte
+Ridge Point          : 11.11 FLOPS/byte
+Classification       : MEMORY BOUND
+
+=== Optimization Insights ===
+[!] STRIDED access detected on b_device
+    -> Apply shared memory staging to fix
+    -> Run with --fix to auto-apply
+
+=== Summary ===
+Issues found : 1
+Auto-fixable : 1
+Run with --fix to apply all fixes
+```
+
+Command 2:
+```bash
+./build/tools/gpuopt --kernel backends/cuda/kernels/matmul.cu --n 64 --fix
+```
+```text
+gpuopt — GPU Kernel Optimizer
+==============================
+Analyzing: backends/cuda/kernels/matmul.cu  (n=64)
+
+=== Memory Access Analysis ===
+[✓] a_device -> COALESCED (stride=1)
+[!] b_device -> STRIDED (stride=64) — non-coalesced column access
+[✓] c -> COALESCED (stride=1)
+
+=== Roofline Analysis ===
+Arithmetic Intensity : 10.67 FLOPS/byte
+Ridge Point          : 11.11 FLOPS/byte
+Classification       : MEMORY BOUND
+
+=== Optimization Insights ===
+[!] STRIDED access detected on b_device
+    -> Apply shared memory staging to fix
+    -> Run with --fix to auto-apply
+
+=== Summary ===
+Issues found : 1
+Auto-fixable : 1
+Run with --fix to apply all fixes
+
+=== Auto-Fix Applied ===
+[✓] b_device: STRIDED -> COALESCED via shared memory staging
+[✓] New arithmetic intensity: 16.00 FLOPS/byte
+[✓] Classification: COMPUTE BOUND (was MEMORY BOUND)
+```
+
+Passing `--fix` applies the shared-memory staging optimization automatically and reruns the classification with the updated arithmetic intensity.
+
 ## Table of contents
 
+- [gpuopt — CLI Tool](#gpuopt--cli-tool)
 - [Quick start](#quick-start)
 - [Prerequisites](#prerequisites)
 - [Install (one-time)](#install-one-time)
@@ -137,11 +215,11 @@ vvp rtl/sim/tb_matmul
 Real output from `ctest -V` (`test_profiler` section):
 
 ```text
-=== OpenGPU Report ===
+=== Performance Report ===
 Backend     Latency(ms)   Throughput(ops/s)     Occupancy   Stall
-cpu         1.030         509079257.191         0.016       0.005
-cuda        1.024         512000000.000         0.016       0.005
-rtl_sim     90.625        5785220.277           0.016       0.005
+cpu         1.026         511230159.272         0.016       0.005
+cuda        1.011         518711847.638         0.016       0.005
+rtl_sim     73.205        7161943.737           0.016       0.005
 === Optimization Insights ===
 [!] low_occupancy detected on backend 'cpu' (occupancy=0.02)
     -> Increase threads per block or batch size
@@ -155,9 +233,9 @@ rtl_sim     90.625        5785220.277           0.016       0.005
     -> Increase threads per block or batch size
 [!] memory not coalesced on backend 'rtl_sim'
     -> Potential 20-30% performance loss
-[!] backend 'rtl_sim' latency is high (latency_ms=90.625)
+[!] backend 'rtl_sim' latency is high (latency_ms=73.205)
     -> Consider kernel fusion or batching
-[!] CUDA underutilization detected (speedup=1.006x)
+[!] CUDA underutilization detected (speedup=1.015x)
 ```
 
 ## Compiler Auto-Fix
@@ -312,10 +390,13 @@ opengpu-lab/
     cpu/
     cuda/
     rtl_sim/
+  compiler/
   scheduler/
   rtl/
   verilator/
   profiler/
+  tools/
+    gpuopt
   tests/
 ```
 
@@ -328,6 +409,7 @@ This is not a hello-world CUDA sample, not a standalone Verilog demo, and not a 
 ## Roadmap
 
 - Auto-tuning (batch size, block size)
-- FP16 / INT8 optimization
 - Kernel fusion recommendations
-- ML-based optimization engine
+- ROCm backend (AMD GPU support)
+- Web interface for browser-based analysis
+- ML-based optimization model
