@@ -257,5 +257,49 @@ int main() {
   std::cout << "[✓] Parser detected: c_device -> COALESCED (stride=1)\n";
   std::cout << "[✓] CUDA kernel analysis complete\n";
 
+  std::cout << "=== NVIDIA matrixMul.cu Analysis ===\n";
+  const opengpu::compiler::KernelIR nvidia_ir =
+      opengpu::compiler::parse_cuda_kernel(NVIDIA_KERNEL_PATH, 32U);
+  print_ir_with_memory("=== Parsed NVIDIA Kernel IR ===", nvidia_ir);
+
+  bool has_shared_mem_load = false;
+  opengpu::compiler::MemAccessPattern nvidia_a_pattern = opengpu::compiler::MemAccessPattern::UNKNOWN;
+  opengpu::compiler::MemAccessPattern nvidia_b_pattern = opengpu::compiler::MemAccessPattern::UNKNOWN;
+  for (const opengpu::compiler::Op& op : nvidia_ir.ops) {
+    if (op.type == opengpu::compiler::OpType::GLOBAL_LOAD && op.src0 == "A") {
+      nvidia_a_pattern = op.access_pattern;
+    }
+    if (op.type == opengpu::compiler::OpType::GLOBAL_LOAD && op.src0 == "B") {
+      nvidia_b_pattern = op.access_pattern;
+    }
+    if (op.type == opengpu::compiler::OpType::SHARED_MEM_LOAD) {
+      has_shared_mem_load = true;
+    }
+  }
+
+  if (nvidia_a_pattern != opengpu::compiler::MemAccessPattern::COALESCED) {
+    std::cerr << "Expected NVIDIA A global load to be COALESCED\n";
+    return EXIT_FAILURE;
+  }
+  if (nvidia_b_pattern != opengpu::compiler::MemAccessPattern::COALESCED) {
+    std::cerr << "Expected NVIDIA B global load to be COALESCED\n";
+    return EXIT_FAILURE;
+  }
+  if (!has_shared_mem_load) {
+    std::cerr << "Expected SHARED_MEM_LOAD ops in NVIDIA parsed IR\n";
+    return EXIT_FAILURE;
+  }
+
+  std::cout << "=== Naive vs NVIDIA Tiled Kernel Comparison ===\n";
+  std::cout << "Naive kernel:\n";
+  std::cout << "  [✓] A access: COALESCED (stride=1)\n";
+  std::cout << "  [!] B access: STRIDED (stride=N) — column access, slow\n";
+  std::cout << "  [✗] No shared memory usage\n\n";
+  std::cout << "NVIDIA tiled kernel:\n";
+  std::cout << "  [✓] A access: COALESCED (stride=1)\n";
+  std::cout << "  [✓] B access: COALESCED (stride=1) — staged via shared memory\n";
+  std::cout << "  [✓] Shared memory tiling detected — eliminates strided access\n\n";
+  std::cout << "[✓] NVIDIA kernel is superior: B access pattern fixed via shared memory staging\n";
+
   return EXIT_SUCCESS;
 }

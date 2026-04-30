@@ -52,8 +52,10 @@ target_link_libraries(test_compiler PRIVATE
   compiler
   profiler
 )
+file(COPY /tmp/matrixMul.cu DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/samples/)
 target_compile_definitions(test_compiler PRIVATE
   CUDA_KERNEL_PATH="${CMAKE_SOURCE_DIR}/backends/cuda/kernels/matmul.cu"
+  NVIDIA_KERNEL_PATH="${CMAKE_CURRENT_BINARY_DIR}/samples/matrixMul.cu"
 )
 add_test(NAME test_compiler COMMAND test_compiler)
 

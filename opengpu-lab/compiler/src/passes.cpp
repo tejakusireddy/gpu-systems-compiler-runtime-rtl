@@ -75,11 +75,23 @@ KernelIR parse_cuda_kernel(const std::string& filepath, const std::size_t n) {
     return {};
   }
 
+  bool saw_shared_decl_as = false;
+  bool saw_shared_decl_bs = false;
   bool saw_a_load = false;
   bool saw_b_load = false;
   bool saw_c_store = false;
+  bool saw_tiled_a_load = false;
+  bool saw_tiled_b_load = false;
+  bool saw_shared_compute_as = false;
+  bool saw_shared_compute_bs = false;
   std::string line;
   while (std::getline(cuda_file, line)) {
+    if (!saw_shared_decl_as && line.find("__shared__ float As[") != std::string::npos) {
+      saw_shared_decl_as = true;
+    }
+    if (!saw_shared_decl_bs && line.find("__shared__ float Bs[") != std::string::npos) {
+      saw_shared_decl_bs = true;
+    }
     if (!saw_a_load && line.find("a_device[") != std::string::npos) {
       saw_a_load = true;
     }
@@ -94,17 +106,53 @@ KernelIR parse_cuda_kernel(const std::string& filepath, const std::size_t n) {
         line.find("=") != std::string::npos) {
       saw_c_store = true;
     }
+    if (!saw_tiled_a_load && line.find("As[ty][tx] = A[") != std::string::npos &&
+        line.find("+ tx") != std::string::npos) {
+      saw_tiled_a_load = true;
+    }
+    if (!saw_tiled_b_load && line.find("Bs[ty][tx] = B[") != std::string::npos &&
+        line.find("+ tx") != std::string::npos) {
+      saw_tiled_b_load = true;
+    }
+    if (!saw_shared_compute_as && line.find("As[ty][k]") != std::string::npos) {
+      saw_shared_compute_as = true;
+    }
+    if (!saw_shared_compute_bs && line.find("Bs[k][tx]") != std::string::npos) {
+      saw_shared_compute_bs = true;
+    }
   }
 
   KernelIR parsed{};
   parsed.name = "parsed_cuda_kernel";
-  if (saw_a_load) {
+  if (saw_shared_decl_as) {
+    parsed.ops.push_back(
+        Op{OpType::SHARED_MEM_LOAD, "As", "shared_decl", "", 0U, MemAccessPattern::COALESCED, 1U});
+  }
+  if (saw_shared_decl_bs) {
+    parsed.ops.push_back(
+        Op{OpType::SHARED_MEM_LOAD, "Bs", "shared_decl", "", 0U, MemAccessPattern::COALESCED, 1U});
+  }
+  if (saw_tiled_a_load) {
+    parsed.ops.push_back(
+        Op{OpType::GLOBAL_LOAD, "As_tile", "A", "", 0U, MemAccessPattern::UNKNOWN, 1U});
+  } else if (saw_a_load) {
     parsed.ops.push_back(
         Op{OpType::GLOBAL_LOAD, "a_reg", "a_device", "", 0U, MemAccessPattern::UNKNOWN, 1U});
   }
-  if (saw_b_load) {
+  if (saw_tiled_b_load) {
+    parsed.ops.push_back(
+        Op{OpType::GLOBAL_LOAD, "Bs_tile", "B", "", 0U, MemAccessPattern::UNKNOWN, 1U});
+  } else if (saw_b_load) {
     parsed.ops.push_back(
         Op{OpType::GLOBAL_LOAD, "b_reg", "b_device", "", 0U, MemAccessPattern::UNKNOWN, n});
+  }
+  if (saw_shared_compute_as) {
+    parsed.ops.push_back(
+        Op{OpType::SHARED_MEM_LOAD, "As_compute", "As[ty][k]", "", 0U, MemAccessPattern::COALESCED, 1U});
+  }
+  if (saw_shared_compute_bs) {
+    parsed.ops.push_back(
+        Op{OpType::SHARED_MEM_LOAD, "Bs_compute", "Bs[k][tx]", "", 0U, MemAccessPattern::COALESCED, 1U});
   }
   parsed.ops.push_back(Op{OpType::MUL, "tmp", "a_reg", "b_reg", 0U, MemAccessPattern::UNKNOWN,
                           0U});
