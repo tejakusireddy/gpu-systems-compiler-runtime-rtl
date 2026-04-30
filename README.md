@@ -196,15 +196,15 @@ max diff: 0.000000
 
 ```mermaid
 graph TD
-  A[User Kernel (C++ API)] --> B[Runtime Layer]
-  B --> C[Scheduler (simulation only)]
-  C --> D[Backend Interface]
-  D --> E[CPU Backend]
-  D --> F[CUDA Backend]
-  D --> G[RTL-Sim (Verilator)]
-  E --> H[Profiler + Metrics + Insights]
-  F --> H
-  G --> H
+    A[User Kernel C++ API] --> B[Runtime Layer]
+    B --> C[Scheduler simulation only]
+    C --> D[Backend Interface]
+    D --> E[CPU Backend]
+    D --> F[CUDA Backend]
+    D --> G[RTL-Sim Verilator]
+    E --> H[Profiler + Metrics + Insights]
+    F --> H
+    G --> H
 ```
 
 ## Build and run
