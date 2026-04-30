@@ -30,7 +30,7 @@ jobs:
         id: changed
         run: |
           git fetch origin ${{ github.base_ref }}
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.cu$' || true)
+          CHANGED=$(git diff --name-only FETCH_HEAD...HEAD | grep '\.cu$' || true)
           echo "files=$CHANGED" >> $GITHUB_OUTPUT
 
       - name: Run gpuopt on changed kernels
