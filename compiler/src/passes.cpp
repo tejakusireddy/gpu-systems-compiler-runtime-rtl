@@ -259,6 +259,52 @@ KernelIR parse_cuda_kernel(const std::string& filepath, const std::size_t n) {
     }
   }
 
+  // Pass 1b: propagate coalesced thread IDs through additive offsets only.
+  for (std::size_t line_idx = 0U; line_idx < lines.size(); ++line_idx) {
+    const std::string& current = lines[line_idx];
+    if (!in_kernel_body(lines, line_idx)) {
+      continue;
+    }
+    const std::size_t eq_pos = current.find('=');
+    if (eq_pos == std::string::npos) {
+      continue;
+    }
+    const std::string var_name = extract_lhs_var(current);
+    if (var_name.empty() || index_map.count(var_name) > 0U) {
+      continue;
+    }
+
+    std::string expr = trim(current.substr(eq_pos + 1U));
+    if (!expr.empty() && expr.back() == ';') {
+      expr.pop_back();
+      expr = trim(expr);
+    }
+    if (expr.find('+') == std::string::npos) {
+      continue;
+    }
+
+    bool has_coalesced_source = false;
+    bool multiplies_coalesced_source = false;
+    for (const auto& [name, pattern] : index_map) {
+      if (pattern != MemAccessPattern::COALESCED) {
+        continue;
+      }
+      if (expr.find(name) == std::string::npos) {
+        continue;
+      }
+      has_coalesced_source = true;
+      if (expr.find(name + " *") != std::string::npos || expr.find(name + "*") != std::string::npos ||
+          expr.find("* " + name) != std::string::npos || expr.find("*" + name) != std::string::npos) {
+        multiplies_coalesced_source = true;
+      }
+    }
+
+    if (has_coalesced_source && !multiplies_coalesced_source) {
+      index_map[var_name] = MemAccessPattern::COALESCED;
+      stride_map[var_name] = 1U;
+    }
+  }
+
   // Pass 2: array access classification + existing pattern detection.
   KernelIR parsed{};
   parsed.name = "parsed_cuda_kernel";
