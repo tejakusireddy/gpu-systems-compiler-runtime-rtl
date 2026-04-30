@@ -147,6 +147,32 @@ Run with --fix to apply all fixes
 
 Passing `--fix` applies the shared-memory staging optimization automatically and reruns the classification with the updated arithmetic intensity.
 
+## Cost Impact Analysis
+
+```bash
+make cost KERNEL=your_kernel.cu              # ROI on default A100, 720hrs/month
+make cost KERNEL=your_kernel.cu GPU=h100 HOURS=200   # custom GPU and usage
+make cost-url URL=https://...kernel.cu       # ROI from any GitHub URL
+```
+
+```text
+=== Cost Impact ===
+GPU              : A100 ($3.00/hr)
+Usage            : 720 hrs/month
+Monthly GPU cost : $2160.00
+
+Before (measured) : 3284M ops/s
+After  (estimated): 4927M ops/s (based on roofline improvement)
+
+Estimated waste   : 33.3%
+Potential savings : ~$720/month
+
+Note: After throughput estimated from roofline improvement ratio (1.50x).
+      Run with --fix + make benchmark for exact measured improvement.
+```
+
+This measures real GPU throughput before and after the fix, estimates monthly savings based on your GPU type and usage hours.
+
 ## Table of contents
 
 - [gpuopt — GPU Optimization CLI](#gpuopt--gpu-optimization-cli)

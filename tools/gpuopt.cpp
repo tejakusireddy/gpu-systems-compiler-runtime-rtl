@@ -285,7 +285,7 @@ int main(const int argc, const char** argv) {
         std::cout << "Before (measured) : " << std::fixed << std::setprecision(0)
                   << (throughput_before / 1.0e6) << "M ops/s\n";
         std::cout << "After  (estimated): " << std::fixed << std::setprecision(0)
-                  << (throughput_after / 1.0e6) << "M ops/s\n\n";
+                  << (throughput_after / 1.0e6) << "M ops/s (based on roofline improvement)\n\n";
 
         std::cout << "Estimated waste   : " << std::fixed << std::setprecision(1) << (waste_pct * 100.0)
                   << "%\n";
@@ -294,7 +294,7 @@ int main(const int argc, const char** argv) {
 
         std::cout << "Note: After throughput estimated from roofline improvement ratio ("
                   << std::fixed << std::setprecision(2) << improvement_ratio << "x).\n";
-        std::cout << "      Profile with --fix applied for exact measurement.\n";
+        std::cout << "      Run with --fix + make benchmark for exact measured improvement.\n";
       }
     }
   }
