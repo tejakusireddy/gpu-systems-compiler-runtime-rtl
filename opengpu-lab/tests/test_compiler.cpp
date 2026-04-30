@@ -92,7 +92,7 @@ int main() {
   std::cout << "=== Profiler Report (compiler_coalesced=true) ===\n" << report_32;
   std::cout << "=== Profiler Report (compiler_coalesced=false) ===\n" << report_48;
 
-  const std::string kCompilerInsight = "Compiler analysis: memory access pattern is not coalesced";
+  const std::string kCompilerInsight = "Compiler: memory access not coalesced";
   if (report_32.find(kCompilerInsight) != std::string::npos) {
     std::cerr << "Compiler coalescing insight unexpectedly fired for tile_size=32\n";
     return EXIT_FAILURE;
@@ -101,6 +101,30 @@ int main() {
     std::cerr << "Compiler coalescing insight did not fire for tile_size=48\n";
     return EXIT_FAILURE;
   }
+
+  std::cout << "=== Auto-Fix Pass (tile_size=48 -> auto-fixed) ===\n";
+  const opengpu::compiler::KernelIR fixed_ir = opengpu::compiler::auto_coalescing_fix_pass(tiled_48);
+  print_ir("=== Fixed Matmul IR (auto_coalescing_fix_pass) ===", fixed_ir);
+
+  std::size_t fixed_tile_size = 0U;
+  for (const opengpu::compiler::Op& op : fixed_ir.ops) {
+    if (op.type == opengpu::compiler::OpType::TILE) {
+      fixed_tile_size = op.tile_size;
+      break;
+    }
+  }
+  if (fixed_tile_size != 64U) {
+    std::cerr << "Auto-fix did not rewrite TILE size to 64\n";
+    return EXIT_FAILURE;
+  }
+  std::cout << "[✓] Auto-fix rewrote tile_size 48 -> 64\n";
+
+  const bool coalesced_after_fix = opengpu::compiler::memory_coalescing_pass(fixed_ir);
+  if (!coalesced_after_fix) {
+    std::cerr << "Coalescing check failed after auto-fix\n";
+    return EXIT_FAILURE;
+  }
+  std::cout << "[✓] Coalescing check after fix: PASS\n";
 
   return EXIT_SUCCESS;
 }

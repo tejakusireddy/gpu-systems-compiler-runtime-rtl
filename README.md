@@ -160,6 +160,22 @@ rtl_sim     90.625        5785220.277           0.016       0.005
 [!] CUDA underutilization detected (speedup=1.006x)
 ```
 
+## Compiler Auto-Fix
+
+```text
+=== Fixed Matmul IR (auto_coalescing_fix_pass) ===
+  op=LOAD dst=a_reg src0=a src1= tile_size=0
+  op=LOAD dst=b_reg src0=b src1= tile_size=0
+  op=TILE dst=tile src0= src1= tile_size=64
+  op=MUL dst=tmp src0=a_reg src1=b_reg tile_size=0
+  op=ADD dst=c src0=c src1=tmp tile_size=0
+  op=STORE dst=c src0=c src1= tile_size=0
+[✓] Auto-fix rewrote tile_size 48 -> 64
+[✓] Coalescing check after fix: PASS
+```
+
+This proves the compiler detects a non-coalesced tile size and automatically rewrites it to the nearest valid multiple of 32. It then verifies the fix with a coalescing pass, requiring no user intervention.
+
 ## Zero-diff correctness proof
 
 Real output from the test suite:

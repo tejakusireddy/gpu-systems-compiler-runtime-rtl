@@ -39,4 +39,14 @@ bool memory_coalescing_pass(const KernelIR& kernel) {
   return saw_load ? saw_valid_tiling_context : true;
 }
 
+KernelIR auto_coalescing_fix_pass(const KernelIR& kernel) {
+  KernelIR rewritten = kernel;
+  for (Op& op : rewritten.ops) {
+    if (op.type == OpType::TILE && (op.tile_size % 32U) != 0U) {
+      op.tile_size = ((op.tile_size + 31U) / 32U) * 32U;
+    }
+  }
+  return rewritten;
+}
+
 }  // namespace opengpu::compiler

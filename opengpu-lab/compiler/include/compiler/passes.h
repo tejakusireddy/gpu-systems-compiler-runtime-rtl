@@ -29,6 +29,14 @@ KernelIR loop_tiling_pass(const KernelIR& kernel, std::size_t tile_size);
  */
 bool memory_coalescing_pass(const KernelIR& kernel);
 
+/**
+ * @brief Rewrites TILE op sizes to nearest coalesced multiple of 32.
+ * @param kernel Input kernel IR.
+ * @return Rewritten IR with TILE sizes auto-fixed for coalescing.
+ * @sideeffects None.
+ */
+KernelIR auto_coalescing_fix_pass(const KernelIR& kernel);
+
 }  // namespace opengpu::compiler
 
 #endif  // OPENGPU_LAB_COMPILER_PASSES_H_

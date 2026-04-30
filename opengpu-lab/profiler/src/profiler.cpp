@@ -72,9 +72,9 @@ void Profiler::report(const bool compiler_coalesced) const {
   }
 
   if (!compiler_coalesced) {
-    std::cout << "[!] Compiler analysis: memory access pattern is not coalesced\n";
-    std::cout << "    -> Apply loop tiling with tile_size multiple of 32\n";
-    std::cout << "    -> Estimated gain: 20-30% memory bandwidth improvement\n";
+    std::cout << "[!] Compiler: memory access not coalesced\n";
+    std::cout << "    -> Auto-fix pass available\n";
+    std::cout << "    -> Run auto_coalescing_fix_pass() to rewrite IR\n";
     printed_any_insight = true;
   }
 
