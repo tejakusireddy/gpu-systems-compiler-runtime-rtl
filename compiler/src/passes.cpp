@@ -751,4 +751,144 @@ DivergenceInfo warp_divergence_pass(const std::string& filepath) {
   return info;
 }
 
+BankConflictInfo bank_conflict_pass(const std::string& filepath) {
+  BankConflictInfo info{};
+  info.has_conflicts = false;
+  info.has_padding = false;
+
+  std::ifstream cuda_file(filepath);
+  if (!cuda_file.is_open()) {
+    return info;
+  }
+
+  auto trim = [](const std::string& value) -> std::string {
+    std::size_t start = 0U;
+    while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start])) != 0) {
+      ++start;
+    }
+    std::size_t end = value.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1U])) != 0) {
+      --end;
+    }
+    return value.substr(start, end - start);
+  };
+
+  auto extract_declared_array_name = [&](const std::string& full_line) -> std::string {
+    const std::string line_trimmed = trim(full_line);
+    const std::size_t shared_pos = line_trimmed.find("__shared__");
+    if (shared_pos == std::string::npos) {
+      return "";
+    }
+    const std::size_t name_end = line_trimmed.find('[', shared_pos);
+    if (name_end == std::string::npos) {
+      return "";
+    }
+    std::size_t name_start = name_end;
+    while (name_start > shared_pos) {
+      const char ch = line_trimmed[name_start - 1U];
+      const bool is_ident = std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+      if (!is_ident) {
+        break;
+      }
+      --name_start;
+    }
+    if (name_start >= name_end) {
+      return "";
+    }
+    return line_trimmed.substr(name_start, name_end - name_start);
+  };
+
+  std::vector<std::string> lines;
+  std::string line;
+  std::unordered_set<std::string> shared_arrays;
+  while (std::getline(cuda_file, line)) {
+    lines.push_back(line);
+    const std::string current = trim(line);
+    if (current.find("__shared__") != std::string::npos) {
+      const std::string name = extract_declared_array_name(current);
+      if (!name.empty()) {
+        shared_arrays.insert(name);
+      }
+      if (current.find('+') != std::string::npos && current.find('[') != std::string::npos &&
+          current.find(']') != std::string::npos) {
+        if (!name.empty()) {
+          std::size_t first_l = current.find('[');
+          std::size_t first_r = current.find(']', first_l + 1U);
+          std::size_t second_l = current.find('[', first_r == std::string::npos ? 0U : first_r + 1U);
+          std::size_t second_r =
+              current.find(']', second_l == std::string::npos ? 0U : second_l + 1U);
+          if (second_l != std::string::npos && second_r != std::string::npos && second_r > second_l) {
+            const std::string first_dim = trim(current.substr(first_l + 1U, first_r - first_l - 1U));
+            const std::string second_dim = trim(current.substr(second_l + 1U, second_r - second_l - 1U));
+            info.padded_declarations.push_back(name + "[" + first_dim + "][" + second_dim + "]");
+          } else {
+            info.padded_declarations.push_back(current);
+          }
+        } else {
+          info.padded_declarations.push_back(current);
+        }
+      }
+    }
+  }
+
+  std::unordered_set<std::string> seen_conflict;
+  std::unordered_set<std::string> seen_clean;
+  for (const std::string& raw : lines) {
+    const std::string current = trim(raw);
+    const bool has_2d_access = current.find("][") != std::string::npos;
+    if (!has_2d_access) {
+      continue;
+    }
+    bool references_shared = current.find("tile[") != std::string::npos;
+    std::string array_name = "tile";
+    if (!references_shared) {
+      for (const std::string& name : shared_arrays) {
+        if (current.find(name + "[") != std::string::npos) {
+          references_shared = true;
+          array_name = name;
+          break;
+        }
+      }
+    }
+    if (!references_shared) {
+      continue;
+    }
+
+    const std::size_t array_pos = current.find(array_name + "[");
+    if (array_pos == std::string::npos) {
+      continue;
+    }
+    const std::size_t first_l = current.find('[', array_pos);
+    const std::size_t first_r = current.find(']', first_l + 1U);
+    const std::size_t second_l = current.find('[', first_r + 1U);
+    const std::size_t second_r = current.find(']', second_l + 1U);
+    if (first_l == std::string::npos || first_r == std::string::npos || second_l == std::string::npos ||
+        second_r == std::string::npos) {
+      continue;
+    }
+    const std::string first_index = trim(current.substr(first_l + 1U, first_r - first_l - 1U));
+    const std::string second_index = trim(current.substr(second_l + 1U, second_r - second_l - 1U));
+    const std::string access = array_name + "[" + first_index + "][" + second_index + "]";
+
+    const bool first_x = first_index.find("threadIdx.x") != std::string::npos;
+    const bool first_y = first_index.find("threadIdx.y") != std::string::npos;
+    const bool second_x = second_index.find("threadIdx.x") != std::string::npos;
+    const bool second_y = second_index.find("threadIdx.y") != std::string::npos;
+
+    if (first_x && second_y) {
+      if (seen_conflict.insert(access).second) {
+        info.conflict_accesses.push_back(access);
+      }
+    } else if (first_y && second_x) {
+      if (seen_clean.insert(access).second) {
+        info.clean_accesses.push_back(access);
+      }
+    }
+  }
+
+  info.has_conflicts = !info.conflict_accesses.empty();
+  info.has_padding = !info.padded_declarations.empty();
+  return info;
+}
+
 }  // namespace opengpu::compiler

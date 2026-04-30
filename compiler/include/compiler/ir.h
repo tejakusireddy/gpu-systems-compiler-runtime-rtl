@@ -54,6 +54,14 @@ struct DivergenceInfo {
   std::vector<std::string> safe_conditions;
 };
 
+struct BankConflictInfo {
+  bool has_conflicts;
+  bool has_padding;
+  std::vector<std::string> conflict_accesses;
+  std::vector<std::string> clean_accesses;
+  std::vector<std::string> padded_declarations;
+};
+
 /**
  * @brief Builds a naive matmul IR sequence.
  * @param None.

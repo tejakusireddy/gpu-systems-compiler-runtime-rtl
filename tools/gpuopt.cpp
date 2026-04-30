@@ -132,6 +132,34 @@ int main(const int argc, const char** argv) {
     std::cout << "[✓] No warp divergence detected\n";
   }
 
+  const opengpu::compiler::BankConflictInfo bank_conflicts =
+      opengpu::compiler::bank_conflict_pass(kernel_path);
+  std::cout << "\n=== Bank Conflict Analysis ===\n";
+  if (!bank_conflicts.conflict_accesses.empty()) {
+    for (const std::string& access : bank_conflicts.conflict_accesses) {
+      std::cout << "[!] Potential bank conflict: " << access << '\n';
+      std::cout << "    -> threadIdx.y same for all threads in warp — hits same bank\n";
+      std::cout << "    -> Fix: transpose access to tile[threadIdx.y][threadIdx.x]\n";
+      std::cout << "    -> Or pad declaration: __shared__ float tile[N][M + 1]\n";
+    }
+  }
+  if (!bank_conflicts.clean_accesses.empty()) {
+    for (const std::string& access : bank_conflicts.clean_accesses) {
+      std::cout << "[✓] Clean access: " << access << '\n';
+      std::cout << "    -> threadIdx.x varies per thread — different banks\n";
+    }
+  }
+  if (!bank_conflicts.padded_declarations.empty()) {
+    for (const std::string& decl : bank_conflicts.padded_declarations) {
+      std::cout << "[✓] Padding detected: " << decl << '\n';
+      std::cout << "    -> Bank conflict mitigation applied\n";
+    }
+  }
+  if (bank_conflicts.conflict_accesses.empty() && bank_conflicts.clean_accesses.empty() &&
+      bank_conflicts.padded_declarations.empty()) {
+    std::cout << "[✓] No bank conflicts detected\n";
+  }
+
   const double dim = static_cast<double>(n);
   const double flops = 2.0 * dim * dim * dim;
   const double bytes = (2.0 * dim * dim * 4.0) + (dim * dim * 4.0);

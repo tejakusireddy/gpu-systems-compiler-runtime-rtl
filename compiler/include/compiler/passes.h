@@ -85,6 +85,19 @@ double compute_tiled_intensity(double flops, std::size_t n);
 //   if ((tid / warpSize) % N == 0)
 DivergenceInfo warp_divergence_pass(const std::string& filepath);
 
+// Detects shared memory bank conflicts from source code.
+//
+// CONFLICT: tile[threadIdx.x][threadIdx.y]
+//   threadIdx.y same for all threads in warp -> all hit same bank
+//
+// CLEAN: tile[threadIdx.y][threadIdx.x]
+//   threadIdx.x varies per thread -> different banks
+//
+// PADDED: __shared__ type name[N][M + something]
+//   padding present -> bank conflict mitigation applied
+//
+BankConflictInfo bank_conflict_pass(const std::string& filepath);
+
 }  // namespace opengpu::compiler
 
 #endif  // OPENGPU_LAB_COMPILER_PASSES_H_
