@@ -194,25 +194,17 @@ max diff: 0.000000
 
 ## Architecture
 
-```text
-User Kernel (C++ API)
-        |
-        v
-Runtime Layer
-        |
-        v
-Scheduler (simulation only)
-        |
-        v
-Backend Interface
-   |          |           |
-   v          v           v
-CPU        CUDA        RTL-Sim
-Backend    Backend    (Verilator)
-        \    |    /
-         \   |   /
-          v  v  v
-  Profiler + Metrics + Insights
+```mermaid
+graph TD
+  A[User Kernel (C++ API)] --> B[Runtime Layer]
+  B --> C[Scheduler (simulation only)]
+  C --> D[Backend Interface]
+  D --> E[CPU Backend]
+  D --> F[CUDA Backend]
+  D --> G[RTL-Sim (Verilator)]
+  E --> H[Profiler + Metrics + Insights]
+  F --> H
+  G --> H
 ```
 
 ## Build and run
