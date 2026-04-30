@@ -6,6 +6,7 @@
 #include "compiler/passes.h"
 
 #include <cctype>
+#include <algorithm>
 #include <fstream>
 #include <string>
 #include <unordered_map>
@@ -888,6 +889,234 @@ BankConflictInfo bank_conflict_pass(const std::string& filepath) {
 
   info.has_conflicts = !info.conflict_accesses.empty();
   info.has_padding = !info.padded_declarations.empty();
+  return info;
+}
+
+OccupancyInfo occupancy_tuning_pass(const std::string& filepath) {
+  OccupancyInfo info{};
+  info.detected_block_size = 0;
+  info.suggested_block_size = 0;
+  info.estimated_occupancy = 0.0F;
+  info.is_multiple_of_32 = false;
+  info.exceeds_limit = false;
+  info.low_occupancy = false;
+  info.suggestion = "Block size not detected in source";
+
+  std::ifstream cuda_file(filepath);
+  if (!cuda_file.is_open()) {
+    return info;
+  }
+
+  auto trim = [](const std::string& value) -> std::string {
+    std::size_t start = 0U;
+    while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start])) != 0) {
+      ++start;
+    }
+    std::size_t end = value.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1U])) != 0) {
+      --end;
+    }
+    return value.substr(start, end - start);
+  };
+
+  auto parse_positive_int = [](const std::string& token, int* out) -> bool {
+    if (token.empty()) {
+      return false;
+    }
+    std::size_t end = token.size();
+    while (end > 0U) {
+      const char ch = token[end - 1U];
+      if (ch == 'U' || ch == 'u' || ch == 'L' || ch == 'l') {
+        --end;
+        continue;
+      }
+      break;
+    }
+    if (end == 0U) {
+      return false;
+    }
+    for (std::size_t i = 0U; i < end; ++i) {
+      const char ch = token[i];
+      if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+        return false;
+      }
+    }
+    *out = std::stoi(token.substr(0U, end));
+    return true;
+  };
+
+  std::vector<std::string> lines;
+  std::string line;
+  while (std::getline(cuda_file, line)) {
+    lines.push_back(line);
+  }
+
+  int block_size_define = 0;
+  int bdimx = 0;
+  int bdimy = 0;
+  std::unordered_map<std::string, int> constants;
+
+  // Pass 1: #define-based detection.
+  for (const std::string& raw : lines) {
+    const std::string current = trim(raw);
+    if (current.rfind("#define", 0U) != 0U) {
+      continue;
+    }
+    const std::size_t first_space = current.find_first_of(" \t");
+    if (first_space == std::string::npos) {
+      continue;
+    }
+    const std::size_t name_start = current.find_first_not_of(" \t", first_space);
+    if (name_start == std::string::npos) {
+      continue;
+    }
+    const std::size_t name_end = current.find_first_of(" \t", name_start);
+    if (name_end == std::string::npos) {
+      continue;
+    }
+    const std::string name = current.substr(name_start, name_end - name_start);
+    const std::size_t value_start = current.find_first_not_of(" \t", name_end);
+    if (value_start == std::string::npos) {
+      continue;
+    }
+    std::size_t value_end = current.find_first_of(" \t", value_start);
+    if (value_end == std::string::npos) {
+      value_end = current.size();
+    }
+    const std::string value = current.substr(value_start, value_end - value_start);
+    int parsed = 0;
+    if (!parse_positive_int(value, &parsed)) {
+      continue;
+    }
+    constants[name] = parsed;
+    if (name == "BLOCK_SIZE") {
+      block_size_define = parsed;
+    } else if (name == "BDIMX") {
+      bdimx = parsed;
+    } else if (name == "BDIMY") {
+      bdimy = parsed;
+    }
+  }
+  if (bdimx > 0 && bdimy > 0) {
+    info.detected_block_size = bdimx * bdimy;
+  } else if (block_size_define > 0) {
+    info.detected_block_size = block_size_define;
+  }
+
+  // Pass 2: dim3-based detection if needed.
+  if (info.detected_block_size == 0) {
+    for (const std::string& raw : lines) {
+      const std::string current = trim(raw);
+      const std::size_t dim3_pos = current.find("dim3");
+      if (dim3_pos == std::string::npos) {
+        continue;
+      }
+      const std::size_t lparen = current.find('(', dim3_pos);
+      const std::size_t rparen = current.find(')', lparen == std::string::npos ? 0U : lparen + 1U);
+      if (lparen == std::string::npos || rparen == std::string::npos || rparen <= lparen) {
+        continue;
+      }
+      const std::string inside = current.substr(lparen + 1U, rparen - lparen - 1U);
+      std::vector<std::string> args;
+      std::size_t start = 0U;
+      while (start <= inside.size()) {
+        const std::size_t comma = inside.find(',', start);
+        const std::size_t end = (comma == std::string::npos) ? inside.size() : comma;
+        args.push_back(trim(inside.substr(start, end - start)));
+        if (comma == std::string::npos) {
+          break;
+        }
+        start = comma + 1U;
+      }
+      if (args.empty()) {
+        continue;
+      }
+      int x = 0;
+      if (!parse_positive_int(args[0], &x)) {
+        auto it = constants.find(args[0]);
+        if (it != constants.end()) {
+          x = it->second;
+        }
+      }
+      if (x <= 0) {
+        continue;
+      }
+      int y = 1;
+      if (args.size() >= 2U) {
+        if (!parse_positive_int(args[1], &y)) {
+          auto it = constants.find(args[1]);
+          if (it != constants.end()) {
+            y = it->second;
+          }
+        }
+        if (y <= 0) {
+          y = 1;
+        }
+      }
+      info.detected_block_size = x * y;
+      break;
+    }
+  }
+
+  // Pass 3: constexpr constants if still unresolved.
+  if (info.detected_block_size == 0) {
+    for (const std::string& raw : lines) {
+      const std::string current = trim(raw);
+      const std::size_t eq_pos = current.find('=');
+      if (eq_pos == std::string::npos || current.find("constexpr") == std::string::npos) {
+        continue;
+      }
+      std::string lhs = trim(current.substr(0U, eq_pos));
+      std::string rhs = trim(current.substr(eq_pos + 1U));
+      if (!rhs.empty() && rhs.back() == ';') {
+        rhs.pop_back();
+        rhs = trim(rhs);
+      }
+      int value = 0;
+      if (!parse_positive_int(rhs, &value)) {
+        continue;
+      }
+      if (lhs.find("ThreadsPerBlock") == std::string::npos && lhs.find("BLOCK_SIZE") == std::string::npos &&
+          lhs.find("threads") == std::string::npos) {
+        continue;
+      }
+      if (lhs.find("X") != std::string::npos && lhs.find("Y") == std::string::npos) {
+        bdimx = value;
+        continue;
+      }
+      if (lhs.find("Y") != std::string::npos && lhs.find("X") == std::string::npos) {
+        bdimy = value;
+        continue;
+      }
+      info.detected_block_size = value;
+      break;
+    }
+    if (info.detected_block_size == 0 && bdimx > 0 && bdimy > 0) {
+      info.detected_block_size = bdimx * bdimy;
+    }
+  }
+
+  if (info.detected_block_size <= 0) {
+    return info;
+  }
+
+  info.is_multiple_of_32 = (info.detected_block_size % 32) == 0;
+  info.exceeds_limit = info.detected_block_size > 1024;
+  info.estimated_occupancy =
+      std::min(1.0F, static_cast<float>(info.detected_block_size) / 1024.0F);
+  info.low_occupancy = info.estimated_occupancy < 0.5F;
+
+  if (!info.is_multiple_of_32) {
+    info.suggested_block_size = ((info.detected_block_size + 31) / 32) * 32;
+    info.suggestion = "Round up to next multiple of 32";
+  } else if (info.low_occupancy) {
+    info.suggested_block_size = std::min(info.detected_block_size * 2, 1024);
+    info.suggestion = "Low occupancy detected — suggest larger block size";
+  } else {
+    info.suggested_block_size = info.detected_block_size;
+    info.suggestion = "Block size looks reasonable";
+  }
+
   return info;
 }
 

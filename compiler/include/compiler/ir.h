@@ -62,6 +62,16 @@ struct BankConflictInfo {
   std::vector<std::string> padded_declarations;
 };
 
+struct OccupancyInfo {
+  int detected_block_size;
+  int suggested_block_size;
+  float estimated_occupancy;
+  bool is_multiple_of_32;
+  bool exceeds_limit;
+  bool low_occupancy;
+  std::string suggestion;
+};
+
 /**
  * @brief Builds a naive matmul IR sequence.
  * @param None.

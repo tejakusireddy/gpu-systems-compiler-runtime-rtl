@@ -160,6 +160,36 @@ int main(const int argc, const char** argv) {
     std::cout << "[✓] No bank conflicts detected\n";
   }
 
+  const opengpu::compiler::OccupancyInfo occupancy =
+      opengpu::compiler::occupancy_tuning_pass(kernel_path);
+  std::cout << "\n=== Occupancy Tuning ===\n";
+  if (occupancy.detected_block_size <= 0) {
+    std::cout << "[?] Block size not detected in source\n";
+    std::cout << "    -> Use --n flag to specify matrix size for roofline analysis\n";
+  } else {
+    std::cout << "Detected block size  : " << occupancy.detected_block_size << "\n";
+    const double occupancy_pct = static_cast<double>(occupancy.estimated_occupancy) * 100.0;
+    std::cout << std::fixed << std::setprecision(1);
+    std::cout << "Estimated occupancy  : " << occupancy_pct << "% (" << occupancy.detected_block_size
+              << "/1024)\n";
+    std::cout << std::setprecision(2);
+    std::cout << "Multiple of 32       : " << (occupancy.is_multiple_of_32 ? "yes" : "no") << "\n";
+    if (occupancy.exceeds_limit) {
+      std::cout << "[!] Block size exceeds CUDA thread/block limit (1024)\n";
+    } else if (!occupancy.is_multiple_of_32) {
+      std::cout << "[!] Block size is not a multiple of 32\n";
+      std::cout << "    -> Current: " << occupancy.detected_block_size << " threads/block\n";
+      std::cout << "    -> Suggested: " << occupancy.suggested_block_size << " threads/block\n";
+    } else if (occupancy.low_occupancy) {
+      std::cout << "[!] Low occupancy detected (< 50%)\n";
+      std::cout << "    -> Current: " << occupancy.detected_block_size << " threads/block\n";
+      std::cout << "    -> Suggested: " << occupancy.suggested_block_size << " threads/block\n";
+      std::cout << "    -> Doubling block size may improve SM utilization\n";
+    } else {
+      std::cout << "[✓] Block size looks reasonable\n";
+    }
+  }
+
   const double dim = static_cast<double>(n);
   const double flops = 2.0 * dim * dim * dim;
   const double bytes = (2.0 * dim * dim * 4.0) + (dim * dim * 4.0);

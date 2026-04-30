@@ -98,6 +98,16 @@ DivergenceInfo warp_divergence_pass(const std::string& filepath);
 //
 BankConflictInfo bank_conflict_pass(const std::string& filepath);
 
+// Analyzes kernel launch configuration from source code.
+// Detects block size from:
+//   - #define BLOCK_SIZE N
+//   - #define BDIMX N / BDIMY N
+//   - dim3 block(N, M, 1) patterns
+//   - blockDim.x = N patterns
+//
+// Returns occupancy tuning suggestions.
+OccupancyInfo occupancy_tuning_pass(const std::string& filepath);
+
 }  // namespace opengpu::compiler
 
 #endif  // OPENGPU_LAB_COMPILER_PASSES_H_
